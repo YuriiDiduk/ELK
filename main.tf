@@ -80,21 +80,23 @@ resource "aws_instance" "elastic_nodes" {
     Name = "elasticsearch_${count.index}"
   }
 }
-data "template_file" "init_elasticsearch" {
-  depends_on = [ 
-    aws_instance.elastic_nodes
-  ]
-  count=3
-  template = file("./elasticsearch_config.tpl")
-  vars = {
-    cluster_name = "cluster1"
-    node_name = "node_${count.index}"
-    node = aws_instance.elastic_nodes[count.index].private_ip
-    node1 = aws_instance.elastic_nodes[0].private_ip
-    node2 = aws_instance.elastic_nodes[1].private_ip
-    node3 = aws_instance.elastic_nodes[2].private_ip
-  }
-}
+#data "template_file" "init_elasticsearch" {
+#  depends_on = [ 
+#    aws_instance.elastic_nodes
+#  ]
+#  count=3
+#  template = file("./elasticsearch_config.tpl")
+#  vars = {
+#    cluster_name = "cluster1"
+#    node_name = "node_${count.index}"
+#    node = aws_instance.elastic_nodes[count.index].private_ip
+#    node1 = aws_instance.elastic_nodes[0].private_ip
+#    node2 = aws_instance.elastic_nodes[1].private_ip
+#    node3 = aws_instance.elastic_nodes[2].private_ip
+#  }
+#}
+
+
 resource "null_resource" "move_elasticsearch_file" {
   count = 3
   connection {
@@ -104,7 +106,15 @@ resource "null_resource" "move_elasticsearch_file" {
      host= aws_instance.elastic_nodes[count.index].public_ip
   } 
   provisioner "file" {
-    content = data.template_file.init_elasticsearch[count.index].rendered
+#    content = data.template_file.init_elasticsearch[count.index].rendered
+    content = templatefile("./templates/elasticsearch_config.tpl", {
+   	cluster_name = "cluster1"
+        node_name = "node_${count.index}"
+        node = aws_instance.elastic_nodes[count.index].private_ip
+        node1 = aws_instance.elastic_nodes[0].private_ip
+        node2 = aws_instance.elastic_nodes[1].private_ip
+        node3 = aws_instance.elastic_nodes[2].private_ip
+  })
     destination = "elasticsearch.yml"
   }
 }
@@ -125,8 +135,8 @@ resource "null_resource" "start_es" {
       "sudo rpm -i https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.5.1-x86_64.rpm",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable elasticsearch.service",
-      "sudo sed -i 's@-Xms1g@-Xms${aws_instance.elastic_nodes[count.index].root_block_device[0].volume_size/2}g@g' /etc/elasticsearch/jvm.options",
-      "sudo sed -i 's@-Xmx1g@-Xmx${aws_instance.elastic_nodes[count.index].root_block_device[0].volume_size/2}g@g' /etc/elasticsearch/jvm.options",
+#      "sudo sed -i 's@-Xms1g@-Xms${aws_instance.elastic_nodes[count.index].root_block_device[0].volume_size/2}g@g' /etc/elasticsearch/jvm.options",
+#      "sudo sed -i 's@-Xmx1g@-Xmx${aws_instance.elastic_nodes[count.index].root_block_device[0].volume_size/2}g@g' /etc/elasticsearch/jvm.options",
       "sudo rm /etc/elasticsearch/elasticsearch.yml",
       "sudo cp elasticsearch.yml /etc/elasticsearch/",
       "sudo systemctl start elasticsearch.service"
@@ -177,15 +187,15 @@ resource "aws_instance" "kibana" {
     Name = "kibana"
   }
 }
-data "template_file" "init_kibana" {
-  depends_on = [ 
-    aws_instance.kibana
-  ]
-  template = file("./kibana_config.tpl")
-  vars = {
-    elasticsearch = aws_instance.elastic_nodes[0].public_ip
-  }
-}
+#data "template_file" "init_kibana" {
+#  depends_on = [ 
+#    aws_instance.kibana
+#  ]
+#  template = file("./kibana_config.tpl")
+#  vars = {
+#    elasticsearch = aws_instance.elastic_nodes[0].public_ip
+#  }
+#}
 resource "null_resource" "move_kibana_file" {
   depends_on = [ 
     aws_instance.kibana
@@ -197,7 +207,9 @@ resource "null_resource" "move_kibana_file" {
      host= aws_instance.kibana.public_ip
   } 
   provisioner "file" {
-    content = data.template_file.init_kibana.rendered
+    content = templatefile("./templates/kibana_config.tpl",{
+    elasticsearch = aws_instance.elastic_nodes[0].public_ip
+  })
     destination = "kibana.yml"
   }
 }
@@ -217,7 +229,7 @@ resource "null_resource" "install_kibana" {
       "sudo yum update -y",
       "sudo rpm -i https://artifacts.elastic.co/downloads/kibana/kibana-7.5.1-x86_64.rpm",
       "sudo rm /etc/kibana/kibana.yml",
-      "sudo cp kibana.yml /etc/kibana/",
+#      "sudo cp kibana.yml /etc/kibana/",
       "sudo systemctl start kibana"
     ]
   }
@@ -268,30 +280,30 @@ resource "aws_instance" "logstash" {
     Name = "logstash"
   }
 }
-data "template_file" "init_logstash" {
-  depends_on = [ 
-    aws_instance.logstash
-  ]
-  template = file("./logstash_config.tpl")
-  vars = {
-    elasticsearch = aws_instance.elastic_nodes[0].public_ip
-  }
-}
-resource "null_resource" "move_logstash_file" {
-  depends_on = [ 
-    aws_instance.logstash
-   ]
-  connection {
-     type = "ssh"
-     user = "ec2-user"
-     private_key = file("tf-kp.pem")
-     host= aws_instance.logstash.public_ip
-  } 
-  provisioner "file" {
-    content = data.template_file.init_logstash.rendered
-    destination = "logstash.conf"
-  }
-}
+#data "template_file" "init_logstash" {
+#  depends_on = [ 
+#    aws_instance.logstash
+#  ]
+#  template = file("./logstash_config.tpl")
+#  vars = {
+#    elasticsearch = aws_instance.elastic_nodes[0].public_ip
+#  }
+#}
+#resource "null_resource" "move_logstash_file" {
+#  depends_on = [ 
+#    aws_instance.logstash
+#   ]
+#  connection {
+#     type = "ssh"
+#     user = "ec2-user"
+#     private_key = file("tf-kp.pem")
+#     host= aws_instance.logstash.public_ip
+#  } 
+#  provisioner "file" {
+#    content = data.template_file.init_logstash.rendered
+#    destination = "logstash.conf"
+#  }
+#}
 
 resource "null_resource" "install_logstash" {
   depends_on = [ 
@@ -307,7 +319,7 @@ resource "null_resource" "install_logstash" {
     inline = [
       "sudo yum update -y && sudo yum install java-1.8.0-openjdk -y",
       "sudo rpm -i https://artifacts.elastic.co/downloads/logstash/logstash-7.5.1.rpm",
-      "sudo cp logstash.conf /etc/logstash/conf.d/logstash.conf",
+#      "sudo cp logstash.conf /etc/logstash/conf.d/logstash.conf",
       "sudo systemctl start logstash.service"
     ]
   }
@@ -341,7 +353,7 @@ resource "aws_instance" "filebeat" {
     null_resource.install_logstash
    ]
   ami                    = "ami-04d29b6f966df1537"
-  instance_type          = "t2.medium"
+  instance_type          = "t2.micro"
   iam_instance_profile   = "${aws_iam_instance_profile.test_profile.name}"
   subnet_id = aws_subnet.elastic_subnet[var.az_name[0]].id
   vpc_security_group_ids = [aws_security_group.filebeat_sg.id]
@@ -363,7 +375,7 @@ resource "null_resource" "move_filebeat_file" {
      host= aws_instance.filebeat.public_ip
   } 
   provisioner "file" {
-    source = "filebeat.yml"
+    source = "templates/filebeat.yml"
     destination = "filebeat.yml"
   }
 }
