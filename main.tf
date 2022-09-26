@@ -1,16 +1,6 @@
-output "ec2_global_ips" {
-  value = ["${aws_instance.kibana.public_ip}"]
-}
 
 ####################################################################################var
 
-variable "cidr" {
-  default = "32"
-}
-
-variable "ip" {
-  default = "aws_instance.kibana.public_ip"
-}
 
 variable "access_ip" {
   type = string
@@ -73,7 +63,7 @@ variable "az_name" {
   type    = list(string)
   default = ["us-east-1a","us-east-1b","us-east-1c"]
 }
-#elasticsearch
+##############################################################elasticsearch_sg
 resource "aws_security_group" "elasticsearch_sg" {
  
   vpc_id = aws_vpc.elastic_vpc.id
@@ -88,9 +78,6 @@ resource "aws_security_group" "elasticsearch_sg" {
 
   ingress {
     description = "ingress rules2"
-#   cidr_blocks = "${aws_instance.kibana.public_ip}"
-#   cidr_blocks = [aws_instance.kibana.public_ip,"32"]
-
     cidr_blocks = [var.access_ip]   
     from_port = 9200
     protocol = "tcp"
