@@ -1,4 +1,39 @@
-#basic setup
+output "ec2_global_ips" {
+  value = ["${aws_instance.kibana.public_ip}"]
+}
+
+####################################################################################var
+
+variable "cidr" {
+  default = "32"
+}
+
+variable "ip" {
+  default = "aws_instance.kibana.public_ip"
+}
+
+variable "access_ip" {
+  type = string
+}
+
+####################################################################################key
+
+resource "tls_private_key" "pk" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "kp" {
+  key_name   = "tf-kp"       # Create a "myKey" to AWS!!
+  public_key = tls_private_key.pk.public_key_openssh
+
+  provisioner "local-exec" { # Create a "myKey.pem" to your computer!!
+  command = "echo '${tls_private_key.pk.private_key_pem}' > ./tf-kp.pem"
+  }
+}
+
+
+####################################################################################vpc
 resource "aws_vpc" "elastic_vpc"{
   cidr_block = cidrsubnet("172.20.0.0/16",0,0)
   tags={
@@ -40,21 +75,29 @@ variable "az_name" {
 }
 #elasticsearch
 resource "aws_security_group" "elasticsearch_sg" {
+ 
   vpc_id = aws_vpc.elastic_vpc.id
   ingress {
     description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    cidr_blocks = [var.access_ip] # my IP
     from_port = 22
     protocol = "tcp"
     to_port = 22
   }
+
+
   ingress {
-    description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "ingress rules2"
+#   cidr_blocks = "${aws_instance.kibana.public_ip}"
+#   cidr_blocks = [aws_instance.kibana.public_ip,"32"]
+
+    cidr_blocks = [var.access_ip]   
     from_port = 9200
     protocol = "tcp"
     to_port = 9300
+#    self = true
   }
+  
   egress {
     description = "egress rules"
     cidr_blocks = [ "0.0.0.0/0" ]
@@ -67,12 +110,26 @@ resource "aws_security_group" "elasticsearch_sg" {
   }
 }
 
+#############################################################################RULE
+
+
+resource "aws_security_group_rule" "example" {
+  depends_on        = [aws_instance.kibana, aws_security_group.elasticsearch_sg]
+  type              = "ingress"
+  from_port         = 9200
+  to_port           = 9300
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.kibana.public_ip}/32"]
+  security_group_id = "${aws_security_group.elasticsearch_sg.id}"
+}
+
+#################################################################################
 resource "aws_instance" "elastic_nodes" {
   count = 3
   ami                    = "ami-04d29b6f966df1537"
   instance_type          = "t2.medium"
   iam_instance_profile   = "${aws_iam_instance_profile.test_profile.name}"
-  subnet_id = aws_subnet.elastic_subnet[var.az_name[count.index]].id
+  subnet_id              = aws_subnet.elastic_subnet[var.az_name[count.index]].id
   vpc_security_group_ids = [aws_security_group.elasticsearch_sg.id]
   key_name               = aws_key_pair.kp.key_name
   associate_public_ip_address = true
@@ -98,11 +155,12 @@ resource "aws_instance" "elastic_nodes" {
 
 
 resource "null_resource" "move_elasticsearch_file" {
+  depends_on = [aws_instance.elastic_nodes]
   count = 3
   connection {
      type = "ssh"
      user = "ec2-user"
-     private_key = file("tf-kp.pem")
+     private_key = "${tls_private_key.pk.private_key_pem}"
      host= aws_instance.elastic_nodes[count.index].public_ip
   } 
   provisioner "file" {
@@ -126,7 +184,7 @@ resource "null_resource" "start_es" {
   connection {
      type = "ssh"
      user = "ec2-user"
-     private_key = file("tf-kp.pem")
+     private_key = "${tls_private_key.pk.private_key_pem}"
      host= aws_instance.elastic_nodes[count.index].public_ip
   }
   provisioner "remote-exec" {
@@ -145,17 +203,19 @@ resource "null_resource" "start_es" {
 }
 #kibana setup
 resource "aws_security_group" "kibana_sg" {
+
+
   vpc_id = aws_vpc.elastic_vpc.id
   ingress {
     description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    cidr_blocks = [var.access_ip]
     from_port = 22
     protocol = "tcp"
     to_port = 22
   }
   ingress {
     description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    cidr_blocks = [var.access_ip]
     from_port = 5601
     protocol = "tcp"
     to_port = 5601
@@ -203,7 +263,7 @@ resource "null_resource" "move_kibana_file" {
   connection {
      type = "ssh"
      user = "ec2-user"
-     private_key = file("tf-kp.pem")
+     private_key = "${tls_private_key.pk.private_key_pem}"
      host= aws_instance.kibana.public_ip
   } 
   provisioner "file" {
@@ -221,7 +281,7 @@ resource "null_resource" "install_kibana" {
   connection {
     type = "ssh"
     user = "ec2-user"
-    private_key = file("tf-kp.pem")
+    private_key = "${tls_private_key.pk.private_key_pem}"
     host= aws_instance.kibana.public_ip
   } 
   provisioner "remote-exec" {
@@ -229,19 +289,21 @@ resource "null_resource" "install_kibana" {
       "sudo yum update -y",
       "sudo rpm -i https://artifacts.elastic.co/downloads/kibana/kibana-7.5.1-x86_64.rpm",
       "sudo rm /etc/kibana/kibana.yml",
-#      "sudo cp kibana.yml /etc/kibana/",
+      "sudo cp kibana.yml /etc/kibana/",
       "sudo systemctl start kibana"
     ]
   }
 }
 
 
+
+/*
 #logstash
 resource "aws_security_group" "logstash_sg" {
   vpc_id = aws_vpc.elastic_vpc.id
   ingress {
     description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    cidr_blocks = [var.access_ip]
     from_port = 22
     protocol = "tcp"
     to_port = 22
@@ -296,7 +358,7 @@ resource "aws_instance" "logstash" {
 #  connection {
 #     type = "ssh"
 #     user = "ec2-user"
-#     private_key = file("tf-kp.pem")
+#     private_key = "${tls_private_key.pk.private_key_pem}"
 #     host= aws_instance.logstash.public_ip
 #  } 
 #  provisioner "file" {
@@ -312,7 +374,7 @@ resource "null_resource" "install_logstash" {
   connection {
     type = "ssh"
     user = "ec2-user"
-    private_key = file("tf-kp.pem")
+    private_key = "${tls_private_key.pk.private_key_pem}"
     host= aws_instance.logstash.public_ip
   } 
   provisioner "remote-exec" {
@@ -325,13 +387,16 @@ resource "null_resource" "install_logstash" {
   }
 }
 
+*/
+
+
 
  #filebeat
 resource "aws_security_group" "filebeat_sg" {
   vpc_id = aws_vpc.elastic_vpc.id
   ingress {
     description = "ingress rules"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    cidr_blocks = [var.access_ip]
     from_port = 22
     protocol = "tcp"
     to_port = 22
@@ -349,9 +414,9 @@ resource "aws_security_group" "filebeat_sg" {
 }
 
 resource "aws_instance" "filebeat" {
-  depends_on = [ 
-    null_resource.install_logstash
-   ]
+#  depends_on = [ 
+#    null_resource.install_logstash
+#   ]
   ami                    = "ami-04d29b6f966df1537"
   instance_type          = "t2.micro"
   iam_instance_profile   = "${aws_iam_instance_profile.test_profile.name}"
@@ -371,7 +436,7 @@ resource "null_resource" "move_filebeat_file" {
   connection {
      type = "ssh"
      user = "ec2-user"
-     private_key = file("tf-kp.pem")
+     private_key = "${tls_private_key.pk.private_key_pem}"
      host= aws_instance.filebeat.public_ip
   } 
   provisioner "file" {
@@ -387,7 +452,7 @@ resource "null_resource" "install_filebeat" {
   connection {
     type = "ssh"
     user = "ec2-user"
-    private_key = file("tf-kp.pem")
+    private_key = "${tls_private_key.pk.private_key_pem}"
     host= aws_instance.filebeat.public_ip
   } 
   provisioner "remote-exec" {
@@ -395,7 +460,7 @@ resource "null_resource" "install_filebeat" {
       "sudo yum update -y",
       "sudo rpm -i https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-7.5.1-x86_64.rpm",
       "sudo sed -i 's@kibana_ip@${aws_instance.kibana.public_ip}@g' filebeat.yml",
-      "sudo sed -i 's@logstash_ip@${aws_instance.logstash.public_ip}@g' filebeat.yml",
+#      "sudo sed -i 's@logstash_ip@${aws_instance.logstash.public_ip}@g' filebeat.yml",
       "sudo rm /etc/filebeat/filebeat.yml",
       "sudo cp filebeat.yml /etc/filebeat/",
       "sudo systemctl start filebeat.service"
@@ -409,3 +474,11 @@ output "elasticsearch_ip_addr" {
 output "kibana_ip_addr" {
   value = join(":",[aws_instance.kibana.public_ip,"5601"])
 }
+
+ 
+output "kibana_ip" {
+  value = join("/",[aws_instance.kibana.public_ip,"32"])
+}
+
+
+
