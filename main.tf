@@ -82,7 +82,7 @@ resource "aws_security_group" "elasticsearch_sg" {
     from_port = 9200
     protocol = "tcp"
     to_port = 9300
-#    self = true
+    self = true
   }
   
   egress {
@@ -100,7 +100,7 @@ resource "aws_security_group" "elasticsearch_sg" {
 #############################################################################RULE
 
 
-resource "aws_security_group_rule" "example" {
+resource "aws_security_group_rule" "kibana" {
   depends_on        = [aws_instance.kibana, aws_security_group.elasticsearch_sg]
   type              = "ingress"
   from_port         = 9200
@@ -109,6 +109,20 @@ resource "aws_security_group_rule" "example" {
   cidr_blocks       = ["${aws_instance.kibana.public_ip}/32"]
   security_group_id = "${aws_security_group.elasticsearch_sg.id}"
 }
+
+/*
+resource "aws_security_group_rule" "elastic_nodes" {
+  depends_on        = [aws_instance.kibana, aws_security_group.elasticsearch_sg]
+  count = 3
+  type              = "ingress"
+  from_port         = 9200
+  to_port           = 9300
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.elastic_nodes[count.index].public_ip}/32"]
+  security_group_id = "${aws_security_group.elasticsearch_sg.id}"
+}
+
+*/
 
 #################################################################################
 resource "aws_instance" "elastic_nodes" {
